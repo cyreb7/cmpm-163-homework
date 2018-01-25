@@ -1,0 +1,14 @@
+body {
+    margin: 0px;
+    overflow: hidden;
+}
+
+.name {
+  position: fixed;
+  top: 0.5em;
+  left: 0.75em;
+  text-shadow: 1px 1px 5px black;
+  font-family: sans-serif;
+  color: white;
+  margin: 0;
+}
