@@ -239,8 +239,6 @@
 
 
     // used the buffer to create a DataTexture
-
-    console.log(data);
     var texture = new THREE.DataTexture( data, resX, resY, THREE.RGBAFormat );
     
     texture.needsUpdate = true; // just a weird thing that Three.js wants you to do after you set the data for the texture
