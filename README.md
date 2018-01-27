@@ -1,5 +1,5 @@
 # CMPM 163 Homework
-Homework repository for [Winter 2018 CMPM 163](https://creativecoding.soe.ucsc.edu/courses/cmpm163/)
+Homework repository for [Winter 2018 CMPM 163](https://creativecoding.soe.ucsc.edu/courses/cmpm163/).
 
 ## Homework Packet 1
 * [Image Processing](https://cyreb7.github.io/cmpm-163-homework/hw1/imageProcessing.html)
