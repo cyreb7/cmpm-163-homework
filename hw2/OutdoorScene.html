@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Outdoor Scene</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/main.css">
+  </head>
+<body>
+<h1 class="name">Outdoor 3D Scene By Bryce Newbury</h1>
+<div id="container"></div>
+
+<script src="js/three.js"></script>
+<script src="js/OrbitControls.js"></script>
+<script src="js/dat.gui.min.js"></script>
+
+<script id="vertexShader" type="x-shader/x-vertex">
+  // Set percision
+  precision mediump float;
+  precision mediump int;
+
+  // Basic projection
+  uniform mat4 modelMatrix;
+  uniform mat4 modelViewMatrix;
+  uniform mat4 projectionMatrix;
+
+  // Current position
+  attribute vec3 position;
+  
+  // For fragment shader
+  varying vec4 vWorldPosition;
+
+  void main() {
+    // Varyings
+    vWorldPosition = modelMatrix * vec4(position, 1.0);
+    
+    // Set position
+    gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+  }
+</script>
+
+<script id="fragmentCubeMap" type="x-shader/x-fragment">
+  // Set percision
+  precision mediump float;
+  precision mediump int;
+  
+  uniform samplerCube cubeMap;
+  
+  // From vertex shader
+  varying vec4 vWorldPosition;
+
+  void main() {
+    // Set color
+    gl_FragColor = textureCube( cubeMap, vWorldPosition.xyz );
+  }
+</script>
+
+<script id="vertexWater" type="x-shader/x-vertex">
+  // Set percision
+  precision mediump float;
+  precision mediump int;
+
+  // Basic projection
+  uniform mat4 modelMatrix;
+  uniform mat4 viewMatrix;
+  uniform mat4 projectionMatrix;
+  uniform vec3 cameraPosition;
+  
+  uniform float waterHeight;
+  uniform float waterDisplacement;
+  uniform float reflectionDisplacement;
+  uniform float time;
+  
+  // Current position
+  attribute vec3 position;
+  attribute vec3 normal;
+  
+  // For fragment shader
+  varying vec4 vWorldPosition;
+  varying vec3 reflection;
+  
+  // Noise generation from class example
+  vec3 mod289(vec3 x)
+  {
+    return x - floor(x * (1.0 / 289.0)) * 289.0;
+  }
+
+  vec4 mod289(vec4 x)
+  {
+    return x - floor(x * (1.0 / 289.0)) * 289.0;
+  }
+
+  vec4 permute(vec4 x)
+  {
+    return mod289(((x*34.0)+1.0)*x);
+  }
+
+  vec4 taylorInvSqrt(vec4 r)
+  {
+    return 1.79284291400159 - 0.85373472095314 * r;
+  }
+
+  vec3 fade(vec3 t) {
+    return t*t*t*(t*(t*6.0-15.0)+10.0);
+  }
+
+  // Classic Perlin noise, periodic variant
+  float pnoise(vec3 P, vec3 rep)
+  {
+    vec3 Pi0 = mod(floor(P), rep); // Integer part, modulo period
+    vec3 Pi1 = mod(Pi0 + vec3(1.0), rep); // Integer part + 1, mod period
+    Pi0 = mod289(Pi0);
+    Pi1 = mod289(Pi1);
+    vec3 Pf0 = fract(P); // Fractional part for interpolation
+    vec3 Pf1 = Pf0 - vec3(1.0); // Fractional part - 1.0
+    vec4 ix = vec4(Pi0.x, Pi1.x, Pi0.x, Pi1.x);
+    vec4 iy = vec4(Pi0.yy, Pi1.yy);
+    vec4 iz0 = Pi0.zzzz;
+    vec4 iz1 = Pi1.zzzz;
+    
+    vec4 ixy = permute(permute(ix) + iy);
+    vec4 ixy0 = permute(ixy + iz0);
+    vec4 ixy1 = permute(ixy + iz1);
+    
+    vec4 gx0 = ixy0 * (1.0 / 7.0);
+    vec4 gy0 = fract(floor(gx0) * (1.0 / 7.0)) - 0.5;
+    gx0 = fract(gx0);
+    vec4 gz0 = vec4(0.5) - abs(gx0) - abs(gy0);
+    vec4 sz0 = step(gz0, vec4(0.0));
+    gx0 -= sz0 * (step(0.0, gx0) - 0.5);
+    gy0 -= sz0 * (step(0.0, gy0) - 0.5);
+    
+    vec4 gx1 = ixy1 * (1.0 / 7.0);
+    vec4 gy1 = fract(floor(gx1) * (1.0 / 7.0)) - 0.5;
+    gx1 = fract(gx1);
+    vec4 gz1 = vec4(0.5) - abs(gx1) - abs(gy1);
+    vec4 sz1 = step(gz1, vec4(0.0));
+    gx1 -= sz1 * (step(0.0, gx1) - 0.5);
+    gy1 -= sz1 * (step(0.0, gy1) - 0.5);
+    
+    vec3 g000 = vec3(gx0.x,gy0.x,gz0.x);
+    vec3 g100 = vec3(gx0.y,gy0.y,gz0.y);
+    vec3 g010 = vec3(gx0.z,gy0.z,gz0.z);
+    vec3 g110 = vec3(gx0.w,gy0.w,gz0.w);
+    vec3 g001 = vec3(gx1.x,gy1.x,gz1.x);
+    vec3 g101 = vec3(gx1.y,gy1.y,gz1.y);
+    vec3 g011 = vec3(gx1.z,gy1.z,gz1.z);
+    vec3 g111 = vec3(gx1.w,gy1.w,gz1.w);
+    
+    vec4 norm0 = taylorInvSqrt(vec4(dot(g000, g000), dot(g010, g010), dot(g100, g100), dot(g110, g110)));
+    g000 *= norm0.x;
+    g010 *= norm0.y;
+    g100 *= norm0.z;
+    g110 *= norm0.w;
+    vec4 norm1 = taylorInvSqrt(vec4(dot(g001, g001), dot(g011, g011), dot(g101, g101), dot(g111, g111)));
+    g001 *= norm1.x;
+    g011 *= norm1.y;
+    g101 *= norm1.z;
+    g111 *= norm1.w;
+    
+    float n000 = dot(g000, Pf0);
+    float n100 = dot(g100, vec3(Pf1.x, Pf0.yz));
+    float n010 = dot(g010, vec3(Pf0.x, Pf1.y, Pf0.z));
+    float n110 = dot(g110, vec3(Pf1.xy, Pf0.z));
+    float n001 = dot(g001, vec3(Pf0.xy, Pf1.z));
+    float n101 = dot(g101, vec3(Pf1.x, Pf0.y, Pf1.z));
+    float n011 = dot(g011, vec3(Pf0.x, Pf1.yz));
+    float n111 = dot(g111, Pf1);
+    
+    vec3 fade_xyz = fade(Pf0);
+    vec4 n_z = mix(vec4(n000, n100, n010, n110), vec4(n001, n101, n011, n111), fade_xyz.z);
+    vec2 n_yz = mix(n_z.xy, n_z.zw, fade_xyz.y);
+    float n_xyz = mix(n_yz.x, n_yz.y, fade_xyz.x);
+    return 2.2 * n_xyz;
+  }
+
+  float turbulence( vec3 p ) {
+    float w = 100.0;
+    float t = -.5;
+    for (float f = 1.0 ; f <= 10.0 ; f++ ){
+      float power = pow( 2.0, f );
+      t += abs( pnoise( vec3( power * p ), vec3( 10.0, 10.0, 10.0 ) ) / power );
+    }
+    return t;
+  }
+
+  vec2 getNoise(float in_val) {
+    // get a 3d noise using the position, low frequency
+    float lowFreq = pnoise( position.xyz + vec3(in_val), vec3(10.0) );
+
+    // get a turbulent 3d noise using the normal, normal to high freq
+    float highFreq = -.5 * turbulence( 0.7 * (position.xyz + vec3(in_val)) );
+
+    return vec2(lowFreq, highFreq);
+  }
+  
+  
+  void main() {
+    // Displacement
+    vec2 noise = getNoise(time);
+    vec4 newWorldPosition = modelMatrix * vec4(position + normal * waterHeight + normal * noise.x * waterDisplacement, 1.0);
+    
+    // Reflection
+    vec3 newNormal = normalize(vec3(normal.x + noise.x * reflectionDisplacement, normal.y, normal.z + noise.x * reflectionDisplacement));
+    vec3 cameraToVertex = newWorldPosition.xyz - cameraPosition;
+    vec3 normalWorldPosition =  normalize(modelMatrix * vec4(newNormal, 0.0)).xyz;
+    reflection = reflect(cameraToVertex, normalWorldPosition);
+    reflection = vec3(-reflection.x, reflection.yz);
+    
+    // Set position
+    gl_Position = projectionMatrix * viewMatrix * newWorldPosition;
+  }
+</script>
+
+<script id="fragmentWater" type="x-shader/x-fragment">
+  // Set percision
+  precision mediump float;
+  precision mediump int;
+  
+  uniform samplerCube cubeMap;
+  
+  // From vertex shader
+  varying vec4 vWorldPosition;
+  varying vec3 reflection;
+
+  void main() {
+    // Set color
+    gl_FragColor = textureCube( cubeMap, reflection );;
+  }
+</script>
+
+<script id="vertexHeightMap" type="x-shader/x-vertex">
+  // Set percision
+  precision mediump float;
+  precision mediump int;
+
+  // Basic projection
+  uniform mat4 modelMatrix;
+  uniform mat4 modelViewMatrix;
+  uniform mat4 projectionMatrix;
+  
+  uniform sampler2D heightMap;
+  uniform float maxTerrainHeight;
+  
+  attribute vec3 position;
+  attribute vec3 normal;
+  attribute vec2 uv;
+  
+  varying float normalizedHeight;
+  varying vec2 vUV;
+  
+  void main() {
+    float displacement = texture2D(heightMap, uv).b * maxTerrainHeight;
+    vec3 newPosition = position + normal * displacement;
+    
+    normalizedHeight = displacement / maxTerrainHeight;
+    vUV = uv;
+    
+    // Set position
+    gl_Position = projectionMatrix * modelViewMatrix * vec4( newPosition, 1.0 );
+  }
+</script>
+
+<script id="fragmentHeightMap" type="x-shader/x-fragment">
+  // Set percision
+  precision mediump float;
+  precision mediump int;
+  
+  uniform samplerCube cubeMap;
+  uniform sampler2D heightMap;
+  
+  // From vertex shader
+  // varying float normalizedHeight;
+  varying vec2 vUV;
+
+  void main() {
+    // Set color
+    gl_FragColor = texture2D(heightMap, vUV);
+  }
+</script>
+
+
+<script>
+  // Code based on class examples
+  // Globals
+  var renderer, scene, camera, uniforms, cubeMapTexture, options = {};
+  var gui = new dat.GUI( { width: 350 } );
+  
+  // Load data
+  // texture = new THREE.TextureLoader().load("textures/cat.jpg", init);
+  var heightMapTexture = new THREE.TextureLoader().load("textures/sky.jpg", finalLoad);
+  function finalLoad() {
+    cubeMapTexture = new THREE.CubeTextureLoader()
+      .setPath( './textures/stairs/' )
+      .load( [
+        'posx.jpg',
+        'negx.jpg',
+        'posy.jpg',
+        'negy.jpg',
+        'posz.jpg',
+        'negz.jpg'
+      ],
+      init );
+  }
+  
+  function init() {
+    initScene();
+    
+    // Camera
+    camera = new THREE.PerspectiveCamera(50.0, window.innerWidth/window.innerHeight, 0.1, 1000);
+    camera.position.y = 10;
+    var controls = new THREE.OrbitControls( camera );
+    controls.update();
+    
+    // Renderer
+    renderer = new THREE.WebGLRenderer();
+    // renderer.setClearColor( 0x999999 );
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('container').appendChild( renderer.domElement );
+    
+    //make it so that resizing the browser window also resizes the scene
+    window.addEventListener( 'resize', onWindowResize, false );
+    
+    // Start animating
+    animate();
+  }
+  
+  function initScene() {
+    // Setup scene
+    scene = new THREE.Scene();
+    
+    // Load shaders
+    var vs = document.getElementById( 'vertexShader' ).textContent;
+    var vsWater = document.getElementById( 'vertexWater' ).textContent;
+    var vsHeightMap = document.getElementById( 'vertexHeightMap' ).textContent;
+    var fsCubeMap = document.getElementById( 'fragmentCubeMap' ).textContent;
+    var fsWater = document.getElementById( 'fragmentWater' ).textContent;
+    var fsHeightMap = document.getElementById( 'fragmentHeightMap').textContent;
+    
+    // Uniforms and GUI
+    uniforms = {
+      "cubeMap": { type: "t", value: cubeMapTexture },
+      'heightMap': {type: 't', value: heightMapTexture},
+      'time': {type: 'f', value: 1.0},
+    }
+    options.waterHeight = 1.15;
+    gui.add(options, "waterHeight", 0, 5);
+    options.maxTerrainHeight = 2;
+    gui.add(options, "maxTerrainHeight", 0, 5);
+    options.waterDisplacement = 0.1;
+    gui.add(options, "waterDisplacement", 0, 1);
+    options.reflectionDisplacement = 0.01;
+    gui.add(options, "reflectionDisplacement", 0, 1);
+    options.timeScale = 0.001;
+    gui.add(options, "timeScale", 0, 0.01);
+    updateUniforms();
+    
+    // Material
+    var materialCubeMap = (new THREE.RawShaderMaterial({
+      uniforms: uniforms,
+      vertexShader: vs,
+      fragmentShader: fsCubeMap
+    }));
+    materialCubeMap.depthWrite = false;
+    materialCubeMap.side = THREE.BackSide;
+    
+    var materialWater = (new THREE.RawShaderMaterial({
+      uniforms: uniforms,
+      vertexShader: vsWater,
+      fragmentShader: fsWater
+    }));
+    
+    var materialHeightMap = (new THREE.RawShaderMaterial({
+      uniforms: uniforms,
+      vertexShader: vsHeightMap,
+      fragmentShader: fsHeightMap
+    }));
+    
+    // Mesh
+    var size = 100;
+    var resolution = 500;
+    var cubeMap = new THREE.Mesh(new THREE.BoxGeometry( 500, 500, 500 ), materialCubeMap);
+    var terrain = new THREE.Mesh(new THREE.PlaneGeometry( size, size, resolution, resolution ), materialWater);
+    var heightMap = new THREE.Mesh(new THREE.PlaneGeometry( size, size, resolution, resolution ), materialHeightMap);
+    
+    // Position
+    terrain.material.side = THREE.DoubleSide;
+    heightMap.material.side = THREE.DoubleSide;
+    terrain.rotateX(-Math.PI/2);
+    heightMap.rotateX(-Math.PI/2);
+    
+    // Add to scene
+    scene.add(cubeMap);
+    scene.add(terrain);
+    scene.add(heightMap);
+  }
+  
+  function animate() {
+    requestAnimationFrame(animate);
+    render();
+  }
+
+  function render() {
+    var time = performance.now();
+    updateUniforms();
+    
+    for (var i = 0; i < scene.children.length; i++) {
+      // Update uniforms
+      if (scene.children[i].type == "Mesh" &&
+        scene.children[i].material.uniforms !== undefined) {
+        scene.children[i].material.uniforms = uniforms;
+        scene.children[i].material.uniforms.time.value = time * options.timeScale;
+      }
+    }
+    
+    renderer.render( scene, camera );
+  }
+  
+  function onWindowResize( event ) {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize( window.innerWidth, window.innerHeight );
+  }
+  
+  // Updates uniforms with options
+  function updateUniforms() {
+    uniforms.waterHeight = {type: 'f', value: options.waterHeight};
+    uniforms.maxTerrainHeight = {type: 'f', value: options.maxTerrainHeight};
+    uniforms.waterDisplacement = {type: 'f', value: options.waterDisplacement};
+    uniforms.reflectionDisplacement = {type: 'f', value: options.reflectionDisplacement};
+  }
+
+</script>
+
+</body>
+</html>
+

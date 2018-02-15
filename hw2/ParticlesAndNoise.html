@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Particles And Noise</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" type="text/css" href="css/main.css">
+  </head>
+<body>
+<h1 class="name">Particles And Noise By Bryce Newbury</h1>
+<div id="container"></div>
+
+<script src="js/three.js"></script>
+<script src="js/OrbitControls.js"></script>
+<script src="js/dat.gui.min.js"></script>
+<script src="js/GPUParticleSystem.js"></script>
+
+<script id="vertexShader" type="x-shader/x-vertex">
+  // Modified from GPU Particle System
+  uniform float uTime;
+  uniform float uScale;
+  uniform float gravity;
+  uniform sampler2D tNoise;
+  attribute vec3 positionStart;
+  attribute float startTime;
+  attribute vec3 velocity;
+  attribute float turbulence;
+  attribute vec3 color;
+  attribute float size;
+  attribute float lifeTime;
+  varying vec4 vColor;
+  varying float lifeLeft;
+  
+  void main() {
+    vColor = vec4( color, 1.0 );
+    vec3 v;
+    float timeElapsed = uTime - startTime;
+    vec3 newPosition = positionStart + ( v * 10.0 ) * timeElapsed;
+    lifeLeft = 1.0 - ( timeElapsed / lifeTime );
+    gl_PointSize = ( uScale * size ) * lifeLeft;
+    v.x = ( velocity.x - 0.5 ) * 3.0;
+    v.y = ( velocity.y - 0.5 ) * 3.0 - gravity * timeElapsed * 0.1;
+    v.z = ( velocity.z - 0.5 ) * 3.0;
+    newPosition = positionStart + ( v * 10.0 ) * timeElapsed;
+    vec3 noise = texture2D( tNoise, vec2( newPosition.x * 0.015 + ( uTime * 0.05 ), newPosition.y * 0.02 + ( uTime * 0.015 ) ) ).rgb;
+    vec3 noiseVel = ( noise.rgb - 0.5 ) * 30.0;
+    newPosition = mix( newPosition, newPosition + vec3( noiseVel * ( turbulence * 5.0 ) ), ( timeElapsed / lifeTime ) );
+    if( v.y > 0. && v.y < .05 ) {
+      lifeLeft = 0.0;
+    }
+    if( v.x < - 1.45 ) {
+      lifeLeft = 0.0;
+    }
+    if( timeElapsed > 0.0 ) {
+      gl_Position = projectionMatrix * modelViewMatrix * vec4( newPosition, 1.0 );
+    } else {
+      gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+      lifeLeft = 0.0;
+      gl_PointSize = 0.;
+    }
+  }
+</script>
+
+<script id="fragmentShader" type="x-shader/x-fragment">
+  // Modified from GPU Particle System
+  float scaleLinear( float value, vec2 valueDomain ) {
+    return ( value - valueDomain.x ) / ( valueDomain.y - valueDomain.x );
+  }
+  // Scales linearly from valueDomain(start, end) to valueRange(startValue, endValue) based on value
+  float scaleLinear( float value, vec2 valueDomain, vec2 valueRange ) {
+    return mix( valueRange.x, valueRange.y, scaleLinear( value, valueDomain ) );
+  }
+  
+  varying vec4 vColor;
+  varying float lifeLeft;
+  uniform sampler2D tSprite;
+  
+  void main() {
+    float alpha = 0.;
+    
+    float fadeInThreshold = 0.995;
+    float goingUpThreshold = 0.75;
+    float atTheTopThreshold = 0.5;
+    float goingDownMultiple = 0.1;
+    if( lifeLeft > fadeInThreshold ) {
+      //alpha = scaleLinear( lifeLeft, vec2( 1.0, fadeInThreshold ), vec2( 0.0, 1.0 ) );
+      alpha = scaleLinear( lifeLeft, vec2( 1.0, fadeInThreshold ), vec2( 0.0, 0.01 ) );
+    } else if (lifeLeft > goingUpThreshold) {
+      // Going up
+      alpha = scaleLinear( lifeLeft, vec2( fadeInThreshold, goingUpThreshold ), vec2( 0.003, 0.025 ) );
+      // lifeLeft * 0.01;
+    } else if (lifeLeft > atTheTopThreshold) {
+      // At the top
+      alpha = scaleLinear( lifeLeft, vec2( goingUpThreshold, atTheTopThreshold ), vec2( 0.025, lifeLeft * goingDownMultiple ) );
+      //lifeLeft * 0.02;
+    } else {
+      // Going down
+      alpha = lifeLeft * goingDownMultiple;
+    }
+    // alpha = 0.1;
+    vec4 tex = texture2D( tSprite, gl_PointCoord );
+    gl_FragColor = vec4( vColor.rgb * tex.a, alpha * tex.a);
+  }
+</script>
+
+<script>
+  // Code based on class examples
+  // Globals
+  var renderer, scene, camera, uniforms, cubeMapTexture, particleSystem, spawnerOptions, options = {};
+  var gui = new dat.GUI( { width: 350 } );
+  var clock = new THREE.Clock();
+  var tick = 0;
+  
+  init();
+  
+  function init() {
+    initScene();
+    
+    // Camera
+    camera = new THREE.PerspectiveCamera(50.0, window.innerWidth/window.innerHeight, 0.1, 10000);
+    camera.position.z = 15;
+    var controls = new THREE.OrbitControls( camera );
+    controls.update();
+    
+    // Renderer
+    renderer = new THREE.WebGLRenderer();
+    renderer.setClearColor( 0x999999 );
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('container').appendChild( renderer.domElement );
+    
+    //make it so that resizing the browser window also resizes the scene
+    window.addEventListener( 'resize', onWindowResize, false );
+    
+    // Start animating
+    animate();
+  }
+  
+  function initScene() {
+    // Setup scene
+    scene = new THREE.Scene();
+    
+    // The GPU Particle system extends THREE.Object3D, and so you can use it
+    // as you would any other scene graph component.  Particle positions will be
+    // relative to the position of the particle system, but you will probably only need one
+    // system for your whole scene
+
+    particleSystem = new THREE.GPUParticleSystem( {
+      maxParticles: 250000,
+      particleShader: {vertexShader: document.getElementById( 'vertexShader' ).textContent,
+                      fragmentShader: document.getElementById( 'fragmentShader' ).textContent},
+      uniforms: {
+        'gravity': {
+          value: 9.8
+        }
+      }});
+    particleSystem.position.y = -2;
+    scene.add( particleSystem );
+    
+    // options passed during each spawned
+
+    options = {
+      position: new THREE.Vector3(0, 0, 0),
+      positionRandomness: 0,
+      velocity: new THREE.Vector3(0,4, 0),
+      velocityRandomness: 1.5,
+      color: 'rgb(154, 255, 255)',
+      colorRandomness: 0.2,
+      turbulence: 0.02,
+      lifetime: 2,
+      size: 50,
+      sizeRandomness: 0,
+    };
+    
+    gui.add( options, "velocityRandomness", 0, 3 );
+    gui.add( options, "positionRandomness", 0, 3 );
+    gui.add( options, "size", 1, 100 );
+    gui.add( options, "sizeRandomness", 0, 25 );
+    gui.add( options, "colorRandomness", 0, 1 );
+    gui.add( options, "lifetime", .1, 10 );
+    gui.add( options, "turbulence", 0, 1 );
+
+    spawnerOptions = {
+      spawnRate: 15000,
+      horizontalSpeed: 0,
+      verticalSpeed: 10,
+      timeScale: 1
+    };
+
+    gui.add( spawnerOptions, "spawnRate", 10, 30000 );
+    gui.add( spawnerOptions, "timeScale", -1, 1 );
+  }
+  
+  function animate() {
+    requestAnimationFrame(animate);
+    render();
+  }
+
+  function render() {
+    var time = performance.now();
+    // updateUniforms();
+    
+    for (var i = 0; i < scene.children.length; i++) {
+      // Update uniforms
+      if (scene.children[i].type == "Mesh" &&
+        scene.children[i].material.uniforms !== undefined) {
+        scene.children[i].material.uniforms = uniforms;
+        scene.children[i].material.uniforms.time.value = time * options.timeScale;
+      }
+    }
+    
+    var delta = clock.getDelta() * spawnerOptions.timeScale;
+
+    tick += delta;
+
+    if ( tick < 0 ) tick = 0;
+
+    if ( delta > 0 ) {
+
+      // options.position.x = Math.sin( tick * spawnerOptions.horizontalSpeed ) * 20;
+      // options.position.y = Math.sin( tick * spawnerOptions.verticalSpeed ) * 10;
+      // options.position.z = Math.sin( tick * spawnerOptions.horizontalSpeed + spawnerOptions.verticalSpeed ) * 5;
+
+      for ( var x = 0; x < spawnerOptions.spawnRate * delta; x++ ) {
+
+        // Yep, that's really it. Spawning particles is super cheap, and once you spawn them, the rest of
+        // their lifecycle is handled entirely on the GPU, driven by a time uniform updated below
+        particleSystem.spawnParticle( options );
+      }
+
+    }
+
+    particleSystem.update( tick );
+    
+    renderer.render( scene, camera );
+  }
+  
+  function onWindowResize( event ) {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize( window.innerWidth, window.innerHeight );
+  }
+</script>
+
+</body>
+</html>
+
